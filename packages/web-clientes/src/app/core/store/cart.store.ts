@@ -17,13 +17,24 @@ export interface CartItem {
   notes: string
 }
 
+export interface SelectedTable {
+  restaurantId: string
+  tableId: string
+  number: number
+  capacity: number
+}
+
+const TABLE_STORAGE_KEY = 'resttek.selectedTable'
+
 @Injectable({ providedIn: 'root' })
 export class CartStore {
   private readonly _items = signal<CartItem[]>([])
   private readonly _restaurantId = signal<string | null>(null)
+  private readonly _table = signal<SelectedTable | null>(this.loadTable())
 
   readonly items = this._items.asReadonly()
   readonly restaurantId = this._restaurantId.asReadonly()
+  readonly table = this._table.asReadonly()
 
   readonly total = computed(() =>
     this._items().reduce((sum, item) => sum + item.dish.price * item.quantity, 0)
@@ -77,5 +88,39 @@ export class CartStore {
   clear(): void {
     this._items.set([])
     this._restaurantId.set(null)
+  }
+
+  setTable(table: SelectedTable): void {
+    this._table.set(table)
+    try {
+      sessionStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(table))
+    } catch {
+      // sessionStorage no disponible: la mesa solo vive en memoria
+    }
+  }
+
+  /** Olvida la mesa elegida (cierre de sesión o mesa que ya no es válida). `clear()` no la toca. */
+  clearTable(): void {
+    this._table.set(null)
+    try {
+      sessionStorage.removeItem(TABLE_STORAGE_KEY)
+    } catch {
+      // sessionStorage no disponible
+    }
+  }
+
+  private loadTable(): SelectedTable | null {
+    try {
+      const raw = sessionStorage.getItem(TABLE_STORAGE_KEY)
+      if (!raw) return null
+      const t = JSON.parse(raw)
+      if (typeof t?.restaurantId === 'string' && typeof t?.tableId === 'string'
+        && typeof t?.number === 'number' && typeof t?.capacity === 'number') {
+        return { restaurantId: t.restaurantId, tableId: t.tableId, number: t.number, capacity: t.capacity }
+      }
+    } catch {
+      // sessionStorage no disponible o contenido corrupto
+    }
+    return null
   }
 }

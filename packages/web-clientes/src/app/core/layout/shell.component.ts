@@ -185,6 +185,7 @@ export class ShellComponent {
   readonly itemCount = computed(() => this.cartStore.itemCount())
 
   logout(): void {
+    this.cartStore.clearTable()
     this.authStore.clearSession()
   }
 }
