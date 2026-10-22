@@ -17,6 +17,7 @@ Terminología del dominio y conceptos técnicos utilizados en el proyecto Restte
 | **DishIngredient** | Relación entre un plato y un ingrediente, con la cantidad necesaria. |
 | **Order** | Pedido realizado por un cliente. Contiene ítems (platos) y está asociado a un restaurante. |
 | **OrderItem** | Línea de un pedido: un plato con cantidad, notas opcionales y estado. |
+| **Table** (mesa) | Mesa de un restaurante. Tiene un número único dentro del restaurante, una capacidad (comensales), una descripción opcional y un estado. El cliente elige y ocupa una mesa libre antes de pedir, y el pedido queda vinculado a ella. |
 
 Dos particularidades del modelo que conviene tener presentes:
 
@@ -43,6 +44,16 @@ El valor almacenado es `manager`; "gerente" es solo su traducción en la interfa
 | **preparando** | Ítem siendo preparado en cocina. | cocinero |
 | **listo** | Ítem preparado, listo para servir. | cocinero |
 | **entregado** | Ítem entregado al cliente. Desaparece de las vistas activas. | camarero |
+
+### Estados de Mesa
+
+| Estado | Descripción | Quién lo cambia |
+| --- | --- | --- |
+| **libre** | Mesa disponible: aparece en la selección de mesa del cliente. | — (estado inicial); admin, manager o camarero al liberarla |
+| **ocupada** | Mesa en uso. Solo se admiten pedidos en mesas ocupadas y no se puede borrar. | cliente al elegirla (`POST /occupy`, solo si estaba libre); admin, manager o camarero |
+| **reservada** | Mesa apartada: no se ofrece al cliente ni se puede ocupar. | admin, manager o camarero |
+
+Ninguna mesa se libera sola: aunque se entreguen todos los ítems, la mesa sigue `ocupada` hasta que un empleado la cambia a `libre` (`PATCH /tables/:id/status`). Los valores se normalizan con `normalizeTableStatus()` (`trim()` + `toLowerCase()`).
 
 ### Categorías de Platos
 
@@ -89,13 +100,13 @@ Las tres capas aplican al contexto `employee`:
 | **Application** | Casos de uso. Orquesta la lógica de negocio. |
 | **Infrastructure** | Implementaciones concretas: BD, HTTP, servicios externos. |
 
-En `restaurant`, `dish`, `ingredient` y `order` la separación equivalente es por carpetas: `models/`, `repositories/`, `services/`, `controllers/` y `routes/`.
+En `restaurant`, `dish`, `ingredient`, `order` y `table` la separación equivalente es por carpetas: `models/`, `repositories/`, `services/`, `controllers/` y `routes/`.
 
 ### Patrones
 
 | Patrón | Descripción | Ejemplo en Resttek |
 | --- | --- | --- |
-| **Entity** | Objeto con identidad única y comportamiento propio. | `Employee` (la única). `Restaurant`, `Dish`, `Ingredient` y `Order` son `interface` planas |
+| **Entity** | Objeto con identidad única y comportamiento propio. | `Employee` (la única). `Restaurant`, `Dish`, `Ingredient`, `Order` y `Table` son `interface` planas |
 | **Value Object** | Objeto inmutable definido por su valor. | `Email`, `Role` |
 | **Repository** | Abstracción de persistencia. | `IEmployeeRepository`, `RestaurantRepository` |
 | **Use Case** | Acción de negocio específica, una clase con `execute()`. | `LoginUseCase`, `CreateEmployeeUseCase`, `RegisterClientUseCase` |
