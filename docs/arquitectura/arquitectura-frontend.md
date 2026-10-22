@@ -51,17 +51,22 @@ src/app/
 ├── app.config.ts
 ├── app.routes.ts
 ├── core/
+│   ├── guards/            → table-selected.guard.ts
+│   ├── helpers/           → table-label.ts
 │   ├── layout/            → shell.component.ts
-│   ├── models/            → dish, order, restaurant
-│   ├── services/          → dish, order, restaurant
+│   ├── models/            → dish, order, restaurant, table
+│   ├── services/          → dish, order, restaurant, table
 │   └── store/             → cart.store.ts
 └── features/
     ├── cart/cart.component.ts
     ├── menu/restaurant-menu.component.ts
     ├── orders/my-orders.component.ts
     ├── orders/order-detail.component.ts
-    └── restaurants/restaurant-list.component.ts
+    ├── restaurants/restaurant-list.component.ts
+    └── tables/table-select.component.ts
 ```
+
+`web-admin` añade la feature `tables/` (CRUD de mesas, con el mismo patrón que `ingredients/` y un `helpers/table-error.helper.ts` que traduce los errores de la API) y `web-empleados` añade `features/tables/` (pantalla Mesas) y `src/app/helpers/table-label.ts` (etiqueta «Mesa N» de un pedido).
 
 Ninguna de las tres aplicaciones tiene carpeta `shared/` propia: lo compartido vive en `@resttek/web-shared`.
 
@@ -107,14 +112,16 @@ export class DishStore {
 Caso particular en `web-empleados`:
 
 - `OrderStore` añade **polling cada 30 s** con `startPolling()` / `stopPolling()`, ya que la API no tiene websockets.
+- En `web-empleados`, el `TableStore` de la pantalla Mesas hace lo mismo (30 s) y la página arranca y detiene a la vez el polling de mesas y el de pedidos, porque cruza ambos por `order.tableId === table.id`.
 
 ### `web-clientes`: el patrón Store casi no se usa
 
-En `web-clientes` el patrón Store **no es la norma**: el único store real es `CartStore`, y es puramente local (sin HTTP) — vacía el carrito si añades un plato de otro restaurante, pero no envuelve ninguna llamada a la API.
+En `web-clientes` el patrón Store **no es la norma**: el único store real es `CartStore`, y es puramente local (sin HTTP) — vacía el carrito si añades un plato de otro restaurante, pero no envuelve ninguna llamada a la API. Guarda además la **mesa elegida** (señal + `sessionStorage`), ligada al `userId` del usuario autenticado: se descarta si cambia el usuario o se pierde la sesión, y `clear()` tras confirmar un pedido no la olvida (el cliente puede seguir pidiendo en la misma mesa).
 
 Para todo lo demás (restaurantes, carta/platos, confirmación y consulta de pedidos) los componentes de `features/` inyectan el `*Service` correspondiente directamente y llaman a sus métodos con `.subscribe({ next, error })`, sin pasar por ningún store ni por `firstValueFrom`:
 
 - `restaurant-list.component.ts` → `RestaurantService.getAll()`
+- `table-select.component.ts` → `TableService.getAvailable()` y `TableService.occupy()` (paso previo a la carta: el guard `table-selected.guard.ts` redirige a `restaurants/:id/mesa` si no hay mesa elegida)
 - `restaurant-menu.component.ts` → `RestaurantService.getById()` y `DishService.getByRestaurant()`
 - `cart.component.ts` (`confirmOrder()`) → `OrderService.createOrder()`
 - `my-orders.component.ts` → `OrderService.getMyOrders()`, con **polling cada 10 s** mediante `setInterval`/`clearInterval` en el propio componente
@@ -327,6 +334,9 @@ export class ShellComponent {
         this.userRole() === 'camarero' || this.userRole() === 'manager'
     )
     readonly canSeeSalon = computed(() =>
+        this.userRole() === 'camarero' || this.userRole() === 'manager'
+    )
+    readonly canSeeMesas = computed(() =>
         this.userRole() === 'camarero' || this.userRole() === 'manager'
     )
 

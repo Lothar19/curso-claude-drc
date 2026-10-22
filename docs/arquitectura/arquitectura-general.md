@@ -172,3 +172,31 @@ graph LR
 - **`web-shared`** es la única dependencia compartida entre frontends.
 - Los frontends **no dependen directamente entre sí**.
 - La API no tiene dependencias de los frontends.
+
+---
+
+## Integración continua
+
+El workflow [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) se ejecuta en cada pull request hacia `main` o `development`. Las fases son secuenciales: cada una solo arranca si la anterior ha pasado.
+
+| Fase | Job | Qué hace |
+| --- | --- | --- |
+| 1 | `Tests de la API` | `npm ci` y `npm test` (Vitest) |
+| 2 | `Build de web-admin`, `web-empleados` y `web-clientes` | `npm run build -w @resttek/<app>` en paralelo (matriz) |
+| 3 | `Revisión de seguridad` | Claude Code en modo headless (`claude -p`) analiza solo el diff de la PR |
+
+### Revisión de seguridad con Claude
+
+- Busca secretos hardcodeados (tokens, claves, contraseñas, secretos JWT por defecto, `.env`/`.db` añadidos), inyección SQL y XSS, rutas sin `authenticate`/`authorize`, exposición de datos y cambios peligrosos en dependencias o en `.github/workflows`.
+- El workflow calcula el diff de la PR y se lo entrega a Claude como fichero. Claude devuelve un informe estructurado (`--json-schema`) que se publica en el resumen del job y como artefacto `informe-seguridad`. El job **falla** si hay algún hallazgo de severidad `critica` o `alta`; los de `media` y `baja` solo se informan.
+- **La revisión debe ser completa.** Claude declara qué ficheros del diff ha revisado y el job falla si falta alguno (se descarta solo `package-lock.json`). Así una revisión que no ha visto todo el diff no puede aprobar la PR; basta con relanzar el job. Una versión anterior del workflow dejaba a Claude sin permiso de shell y aprobaba habiendo revisado solo parte de los cambios.
+- **Solo lectura y acotada por ruta.** Sin shell, sin red y sin escritura. Las lecturas (`Read`, `Grep`, `Glob`) solo funcionan dentro del checkout y del directorio del diff (`--allowedTools "Read(./**)" "Read(/<dir>/**)"`). Sin esa restricción, `Grep` podía leer `/proc/self/environ`, donde está el token. Un intento de leer fuera de esas rutas se deniega y se muestra como aviso.
+- **Red de seguridad:** si el token apareciera en la salida de Claude (p. ej. por un prompt injection en el diff), el job descarta el informe antes de publicarlo y falla; hay que rotar el secreto.
+- Además, `--setting-sources user`, `--strict-mcp-config` y `--disable-slash-commands` impiden que la configuración de Claude Code que venga en la propia PR (hooks, MCP, skills) se cargue.
+- El título, la descripción y los comentarios de la PR nunca se pasan a Claude: son texto no confiable.
+- Usa el secreto `CLAUDE_CODE_OAUTH_TOKEN` (el mismo que los demás workflows de Claude). Las PR desde forks o de Dependabot no reciben secretos y el job falla con un mensaje explícito: hay que revisarlas a mano. Las PR en borrador se saltan esta fase.
+- La versión del CLI está fijada en `CLAUDE_CODE_VERSION` y se actualiza a mano.
+
+### Para que bloquee el merge
+
+El workflow solo informa. Para impedir el merge hay que configurar la protección de las ramas `main` y `development` en GitHub (*Settings → Branches*) con «Require status checks to pass» y marcar como obligatorios `Tests de la API`, los tres `Build de …` y `Revisión de seguridad`.

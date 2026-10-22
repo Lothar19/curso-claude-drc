@@ -2,7 +2,9 @@ import { randomUUID } from 'crypto'
 import type { Order, OrderItem } from '@models/order.model.js'
 import { normalizeOrderStatus } from '@models/order.model.js'
 import type { OrderRepository } from '@repositories/order.repository.js'
-import { RestaurantIdRequiredError, OrderNotFoundError } from '@errors/DomainErrors.js'
+import type { TableRepository } from '@repositories/table.repository.js'
+import type { Table } from '@models/table.model.js'
+import { RestaurantIdRequiredError, OrderNotFoundError, TableNotFoundError, TableNotOccupiedError } from '@errors/DomainErrors.js'
 
 export interface CreateOrderRequest {
     restaurantId: string
@@ -16,12 +18,18 @@ export interface CreateOrderRequest {
 }
 
 export class OrderService {
-    constructor(private readonly orderRepository: OrderRepository) {}
+    constructor(
+        private readonly orderRepository: OrderRepository,
+        private readonly tableRepository: TableRepository
+    ) {}
 
     async create(request: CreateOrderRequest): Promise<Order> {
         if (!request.restaurantId || request.restaurantId.trim() === '') {
             throw new RestaurantIdRequiredError()
         }
+
+        const tableId = request.tableId ? request.tableId : null
+        const table = tableId ? await this.findOccupiedTable(tableId, request.restaurantId) : null
 
         const items: OrderItem[] = []
         for (const item of request.items) {
@@ -39,7 +47,8 @@ export class OrderService {
         const order: Order = {
             id: randomUUID(),
             restaurantId: request.restaurantId,
-            tableId: request.tableId,
+            tableId,
+            tableNumber: table?.number ?? null,
             clientId: request.clientId,
             createdAt: new Date(),
             items
@@ -48,6 +57,21 @@ export class OrderService {
         await this.orderRepository.create(order)
 
         return order
+    }
+
+    /**
+     * La mesa de un pedido debe existir, ser del mismo restaurante y estar `ocupada`.
+     * Inexistente y de otro restaurante dan el mismo error a propósito.
+     */
+    private async findOccupiedTable(tableId: unknown, restaurantId: string): Promise<Table> {
+        const table = typeof tableId === 'string' ? await this.tableRepository.findById(tableId) : null
+        if (!table || table.restaurantId !== restaurantId) {
+            throw new TableNotFoundError()
+        }
+        if (table.status !== 'ocupada') {
+            throw new TableNotOccupiedError()
+        }
+        return table
     }
 
     async listActive(restaurantId: string): Promise<Order[]> {

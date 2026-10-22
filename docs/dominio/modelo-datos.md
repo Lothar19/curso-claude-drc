@@ -12,6 +12,8 @@ erDiagram
     restaurants ||--o{ ingredients : "tiene"
     restaurants ||--o{ dishes : "tiene"
     restaurants ||--o{ orders : "tiene"
+    restaurants ||--o{ tables : "tiene"
+    tables |o..o{ orders : "se sirve en (sin FK)"
     dishes ||--o{ dish_ingredients : "contiene"
     ingredients ||--o{ dish_ingredients : "usado en"
     orders ||--o{ order_items : "contiene"
@@ -83,6 +85,17 @@ erDiagram
         INTEGER quantity
         TEXT notes
         TEXT status
+    }
+
+    tables {
+        TEXT id PK
+        INTEGER number
+        TEXT description
+        INTEGER capacity
+        TEXT status
+        TEXT restaurant_id FK
+        TEXT created_at
+        TEXT updated_at
     }
 ```
 
@@ -190,9 +203,15 @@ Pedidos de los clientes.
 | --- | --- | --- | --- |
 | `id` | TEXT | No | UUID, clave primaria |
 | `restaurant_id` | TEXT | No | FK → `restaurants.id` |
-| `table_id` | TEXT | Sí | Identificador de mesa (opcional) |
+| `table_id` | TEXT | Sí | Id de la mesa (`tables.id`) en la que se sirve el pedido (opcional) |
 | `client_id` | TEXT | Sí | ID del cliente (opcional) |
 | `created_at` | TEXT | No | Fecha de creación |
+
+**Notas sobre `table_id`:**
+
+- **No es FK** (la columna es anterior a la tabla `tables`). La integridad la garantiza `OrderService.create()`: si llega `tableId`, la mesa debe existir, ser del mismo restaurante y estar `ocupada`; si no, el pedido se rechaza.
+- Los pedidos antiguos pueden tener texto libre (p. ej. `'5'`), y si se borra una mesa sus pedidos históricos conservan un `table_id` huérfano.
+- La API expone además **`tableNumber`** en todos los pedidos: se calcula con `LEFT JOIN tables t ON o.table_id = t.id AND t.restaurant_id = o.restaurant_id`, así que vale `null` si no hay mesa, si `table_id` es texto libre antiguo o si la mesa se borró. No es una columna.
 
 ---
 
@@ -215,6 +234,29 @@ Líneas de pedido. Cada ítem es un plato con cantidad y estado.
 
 ---
 
+### `tables`
+
+Mesas de cada restaurante (issue #5). Contrato HTTP en [`docs/contratos/mesas.openapi.yaml`](../contratos/mesas.openapi.yaml).
+
+| Columna | Tipo | Nullable | Descripción |
+| --- | --- | --- | --- |
+| `id` | TEXT | No | UUID, clave primaria |
+| `number` | INTEGER | No | Número visible de la mesa (entero > 0) |
+| `description` | TEXT | Sí | Texto libre: ubicación, notas… |
+| `capacity` | INTEGER | No | Número máximo de comensales (entero > 0) |
+| `status` | TEXT | No | Estado: libre, ocupada, reservada (default: `libre`) |
+| `restaurant_id` | TEXT | No | FK → `restaurants.id` |
+| `created_at` | TEXT | No | Fecha de creación |
+| `updated_at` | TEXT | No | Fecha de última actualización |
+
+**Restricciones:**
+
+- `UNIQUE(restaurant_id, number)`: el número no se repite dentro de un restaurante, pero sí entre restaurantes.
+- `restaurant_id` es FK a `restaurants.id`.
+- Es una tabla nueva, así que `CREATE TABLE IF NOT EXISTS` la crea también en una `resttek.db` ya existente: no hace falta borrarla.
+
+---
+
 ## Relaciones
 
 | Relación | Tipo | Descripción |
@@ -223,6 +265,8 @@ Líneas de pedido. Cada ítem es un plato con cantidad y estado.
 | Restaurant → Ingredients | 1:N | Un restaurante tiene muchos ingredientes |
 | Restaurant → Dishes | 1:N | Un restaurante tiene muchos platos |
 | Restaurant → Orders | 1:N | Un restaurante tiene muchos pedidos |
+| Restaurant → Tables | 1:N | Un restaurante tiene muchas mesas |
+| Table → Orders | 1:N (sin FK) | Una mesa puede tener varios pedidos (`orders.table_id`) |
 | Dish ↔ Ingredient | N:M | Un plato usa varios ingredientes (via `dish_ingredients`) |
 | Order → OrderItems | 1:N | Un pedido tiene varios ítems |
 | Dish → OrderItems | 1:N | Un plato puede estar en varios ítems de pedido |

@@ -1,8 +1,9 @@
-import { Component, inject, signal } from '@angular/core'
+import { Component, inject, signal, computed } from '@angular/core'
 import { Router, RouterLink } from '@angular/router'
 import { DecimalPipe } from '@angular/common'
 import { CartStore } from '../../core/store/cart.store'
 import { OrderService } from '../../core/services/order.service'
+import { HttpErrorResponse } from '@angular/common/http'
 
 @Component({
   selector: 'app-cart',
@@ -45,6 +46,17 @@ import { OrderService } from '../../core/services/order.service'
 
           <aside class="order-summary card">
             <h3>Resumen</h3>
+            @if (currentTable(); as table) {
+              <div class="summary-row table-row">
+                <span>Mesa {{ table.number }}</span>
+                <span>{{ table.capacity }} pers.</span>
+              </div>
+            } @else {
+              <p class="no-table">Aún no has elegido mesa.</p>
+              <a [routerLink]="['/restaurants', cartStore.restaurantId(), 'mesa']" class="btn btn-secondary btn-sm">
+                Elegir mesa
+              </a>
+            }
             <div class="summary-row">
               <span>Items ({{ cartStore.itemCount() }})</span>
               <span>{{ cartStore.total() | number:'1.2-2' }} €</span>
@@ -54,7 +66,7 @@ import { OrderService } from '../../core/services/order.service'
               <strong>{{ cartStore.total() | number:'1.2-2' }} €</strong>
             </div>
             <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 16px;" 
-                    [disabled]="loading()" (click)="confirmOrder()">
+                    [disabled]="loading() || !currentTable()" (click)="confirmOrder()">
               @if (loading()) {
                 Confirmando...
               } @else if (error()) {
@@ -160,6 +172,15 @@ import { OrderService } from '../../core/services/order.service'
       font-size: 18px;
       color: var(--text-primary);
     }
+    .table-row {
+      color: var(--green-light);
+      font-weight: 600;
+    }
+    .no-table {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
     .error-msg {
       color: var(--red);
       text-align: center;
@@ -175,6 +196,12 @@ export class CartComponent {
 
   readonly loading = signal(false)
   readonly error = signal<string | null>(null)
+
+  /** Mesa elegida, solo si es del restaurante del carrito. */
+  readonly currentTable = computed(() => {
+    const table = this.cartStore.table()
+    return table && table.restaurantId === this.cartStore.restaurantId() ? table : null
+  })
 
   increment(dishId: string): void {
     const item = this.cartStore.items().find(i => i.dish.id === dishId)
@@ -196,7 +223,8 @@ export class CartComponent {
 
   confirmOrder(): void {
     const restaurantId = this.cartStore.restaurantId()
-    if (!restaurantId || this.cartStore.items().length === 0) return
+    const table = this.currentTable()
+    if (!restaurantId || !table || this.cartStore.items().length === 0) return
 
     this.loading.set(true)
     this.error.set(null)
@@ -207,12 +235,22 @@ export class CartComponent {
       notes: item.notes || null
     }))
 
-    this.orderService.createOrder(restaurantId, items).subscribe({
+    this.orderService.createOrder(restaurantId, table.tableId, items).subscribe({
       next: (order) => {
         this.cartStore.clear()
         this.router.navigate(['/orders', order.id])
       },
-      error: (err) => {
+      error: (err: HttpErrorResponse) => {
+        const apiError = err.status === 400 ? err.error?.error : null
+        if (apiError === 'Table not found' || apiError === 'Table is not occupied') {
+          // La mesa guardada ya no es válida: se olvida y se vuelve a elegir (el carrito se conserva)
+          this.cartStore.clearTable()
+          const notice = apiError === 'Table not found'
+            ? 'La mesa que tenías ya no existe. Elige una mesa para continuar con tu pedido.'
+            : 'Tu mesa ya no está ocupada (puede que el personal la haya liberado). Elige una mesa para continuar con tu pedido.'
+          this.router.navigate(['/restaurants', restaurantId, 'mesa'], { state: { notice } })
+          return
+        }
         this.error.set('Error al confirmar el pedido. Inténtalo de nuevo.')
         this.loading.set(false)
       }
