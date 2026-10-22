@@ -4,6 +4,7 @@ import { DecimalPipe, DatePipe, NgClass } from '@angular/common'
 import { LucideAngularModule } from 'lucide-angular'
 import { OrderService } from '../../core/services/order.service'
 import { Order, OrderItem } from '../../core/models/order.model'
+import { getOrderTableLabel } from '../../core/helpers/table-label'
 
 @Component({
   selector: 'app-order-detail',
@@ -21,6 +22,9 @@ import { Order, OrderItem } from '../../core/models/order.model'
             <a routerLink="/orders" class="back-link">← Volver a mis pedidos</a>
             <h1>Pedido #{{ order()!.id.substring(0, 8) }}</h1>
             <p class="order-date">{{ order()!.createdAt | date:'dd/MM/yyyy HH:mm' }}</p>
+            @if (getTableLabel(); as tableLabel) {
+              <p class="order-table">{{ tableLabel }}</p>
+            }
           </div>
         </div>
 
@@ -81,6 +85,12 @@ import { Order, OrderItem } from '../../core/models/order.model'
     .order-date {
       color: var(--text-muted);
       font-size: 14px;
+      margin-top: 4px;
+    }
+    .order-table {
+      color: var(--green-light);
+      font-size: 14px;
+      font-weight: 600;
       margin-top: 4px;
     }
     .ticket {
@@ -206,6 +216,11 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
         this.loading.set(false)
       }
     })
+  }
+
+  getTableLabel(): string | null {
+    const o = this.order()
+    return o ? getOrderTableLabel(o) : null
   }
 
   getTotal(): number {
