@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router'
 import { DatePipe, DecimalPipe } from '@angular/common'
 import { OrderService } from '../../core/services/order.service'
 import { Order } from '../../core/models/order.model'
+import { getOrderTableLabel } from '../../core/helpers/table-label'
 
 @Component({
   selector: 'app-my-orders',
@@ -38,6 +39,9 @@ import { Order } from '../../core/models/order.model'
               <div class="order-info">
                 <span class="restaurant-name">{{ order.restaurantName }}</span>
                 <span class="order-meta">
+                  @if (getTableLabel(order); as tableLabel) {
+                    <span>{{ tableLabel }}</span>
+                  }
                   <span>{{ order.items.length }} {{ order.items.length === 1 ? 'artículo' : 'artículos' }}</span>
                   <span class="order-total">{{ getOrderTotal(order) | number:'1.2-2' }} €</span>
                 </span>
@@ -167,6 +171,10 @@ export class MyOrdersComponent implements OnInit, OnDestroy {
       entregado: 'Entregado'
     }
     return labels[status] || status
+  }
+
+  getTableLabel(order: Order): string | null {
+    return getOrderTableLabel(order)
   }
 
   getOrderTotal(order: Order): number {
