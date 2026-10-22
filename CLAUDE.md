@@ -39,15 +39,16 @@ Credenciales tras el seed: la contraseña es el propio email (`admin@resttek.com
 Conviven **dos estilos**; identifica cuál aplica antes de tocar código:
 
 - **Hexagonal + DDD** solo en `contexts/employee/` (`domain` → `application` → `infrastructure`). `Employee` es la única entidad con comportamiento (constructor privado + `create()`); casos de uso con `execute()`; interfaces con prefijo `I`. `contexts/shared/` guarda `Email`, middlewares y `errorHandler`. Los `Role` y `Email` son los únicos value objects como clase.
-- **Por capas** para `restaurant`, `dish`, `ingredient`, `order`: `models/`, `repositories/`, `services/`, `controllers/`, `routes/`, un fichero por dominio. Objetos planos; la validación vive en servicios y en funciones `normalizeX()` de los modelos. Interfaz de repositorio sin prefijo `I`, en el mismo fichero que su implementación SQLite. La composición de dependencias se hace en el propio fichero de rutas (en `employee`, en `http/dependencies.ts`).
+- **Por capas** para `restaurant`, `dish`, `ingredient`, `order`, `table`: `models/`, `repositories/`, `services/`, `controllers/`, `routes/`, un fichero por dominio. Objetos planos; la validación vive en servicios y en funciones `normalizeX()` de los modelos. Interfaz de repositorio sin prefijo `I`, en el mismo fichero que su implementación SQLite. La composición de dependencias se hace en el propio fichero de rutas (en `employee`, en `http/dependencies.ts`).
 
 Detalles que sorprenden:
 
 - Alias de path (`@models/*`, `@services/*`, `@employee/*`, `@shared/*`…) en `tsconfig.json`; los imports llevan extensión `.js` (ESM, `nodenext`).
 - Auth JWT: `authenticate` (401) y `authorize(roles)` (403) responden directamente, sin pasar por el `errorHandler`. Los routers bajo `/restaurants/:restaurantId/...` necesitan `mergeParams: true`.
-- Errores: `AppError` → `errors/DomainErrors.ts`; el `errorHandler` decide el HTTP por nombre de clase (404 solo para `Employee/Restaurant/Ingredient/DishNotFoundError`, 401 `InvalidCredentialsError`, 400 el resto de `AppError`). `OrderNotFoundError` no está en la lista (da 400) y `OrderController` no usa `next(error)`: gestiona sus errores a mano.
+- Errores: `AppError` → `errors/DomainErrors.ts`; el `errorHandler` decide el HTTP por nombre de clase (404 solo para `Employee/Restaurant/Ingredient/Dish/TableNotFoundError`, 409 para `DuplicatedTableNumberError`, `TableNotAvailableError` y `TableInUseError`, 401 `InvalidCredentialsError`, 400 el resto de `AppError`). `OrderNotFoundError` no está en la lista (da 400) y `OrderController` no usa `next(error)`: gestiona sus errores a mano, así que los errores de mesa de `POST /orders` (`Table not found`, `Table is not occupied`) llegan como 400 con `{ error: <mensaje> }`.
 - Las rutas de pedidos no aplican `authorize()`; cualquier usuario autenticado puede cambiar el estado de un ítem.
-- Al crear un pedido, un ítem con `quantity: 3` se guarda como 3 filas de `quantity: 1`.
+- Al crear un pedido, un ítem con `quantity: 3` se guarda como 3 filas de `quantity: 1`. Si trae `tableId`, la mesa debe existir, ser del mismo restaurante y estar `ocupada`; los pedidos devuelven siempre `tableNumber` (entero o `null`).
+- Contrato OpenAPI de las mesas (endpoints, roles, errores y decisiones de diseño): `docs/contratos/mesas.openapi.yaml`.
 - BD: `config/database.ts` exporta una instancia única `dbConfig`; fichero `packages/api/resttek.db`, o `:memory:` si `NODE_ENV=test`. Las tablas se crean al arrancar (`CREATE TABLE IF NOT EXISTS`, sin sistema de migraciones).
 - Tests unitarios junto al código, con dobles en `mocks/`. `supertest` está instalado pero no se usa: rutas y middlewares no tienen cobertura.
 
