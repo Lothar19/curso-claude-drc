@@ -1,4 +1,5 @@
-import { Injectable, signal, computed } from '@angular/core'
+import { Injectable, inject, signal, computed, effect } from '@angular/core'
+import { AuthStore } from '@resttek/web-shared'
 
 export interface Dish {
   id: string
@@ -18,6 +19,7 @@ export interface CartItem {
 }
 
 export interface SelectedTable {
+  userId: string
   restaurantId: string
   tableId: string
   number: number
@@ -28,13 +30,19 @@ const TABLE_STORAGE_KEY = 'resttek.selectedTable'
 
 @Injectable({ providedIn: 'root' })
 export class CartStore {
+  private readonly authStore = inject(AuthStore)
   private readonly _items = signal<CartItem[]>([])
   private readonly _restaurantId = signal<string | null>(null)
   private readonly _table = signal<SelectedTable | null>(this.loadTable())
 
   readonly items = this._items.asReadonly()
   readonly restaurantId = this._restaurantId.asReadonly()
-  readonly table = this._table.asReadonly()
+  /** Mesa elegida; se trata como inexistente si pertenece a otro usuario o no hay sesión. */
+  readonly table = computed(() => {
+    const table = this._table()
+    const userId = this.authStore.user()?.id
+    return table && userId && table.userId === userId ? table : null
+  })
 
   readonly total = computed(() =>
     this._items().reduce((sum, item) => sum + item.dish.price * item.quantity, 0)
@@ -43,6 +51,15 @@ export class CartStore {
   readonly itemCount = computed(() =>
     this._items().reduce((count, item) => count + item.quantity, 0)
   )
+
+  constructor() {
+    // Si la sesión caduca o entra otro usuario, la mesa guardada se borra también de sessionStorage
+    effect(() => {
+      if (this._table() && !this.table()) {
+        this.clearTable()
+      }
+    })
+  }
 
   addItem(dish: Dish, quantity: number = 1, notes: string = ''): void {
     if (this._restaurantId() && this._restaurantId() !== dish.restaurantId) {
@@ -90,10 +107,13 @@ export class CartStore {
     this._restaurantId.set(null)
   }
 
-  setTable(table: SelectedTable): void {
-    this._table.set(table)
+  setTable(table: Omit<SelectedTable, 'userId'>): void {
+    const userId = this.authStore.user()?.id
+    if (!userId) return
+    const selected: SelectedTable = { ...table, userId }
+    this._table.set(selected)
     try {
-      sessionStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(table))
+      sessionStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(selected))
     } catch {
       // sessionStorage no disponible: la mesa solo vive en memoria
     }
@@ -114,9 +134,9 @@ export class CartStore {
       const raw = sessionStorage.getItem(TABLE_STORAGE_KEY)
       if (!raw) return null
       const t = JSON.parse(raw)
-      if (typeof t?.restaurantId === 'string' && typeof t?.tableId === 'string'
+      if (typeof t?.userId === 'string' && typeof t?.restaurantId === 'string' && typeof t?.tableId === 'string'
         && typeof t?.number === 'number' && typeof t?.capacity === 'number') {
-        return { restaurantId: t.restaurantId, tableId: t.tableId, number: t.number, capacity: t.capacity }
+        return { userId: t.userId, restaurantId: t.restaurantId, tableId: t.tableId, number: t.number, capacity: t.capacity }
       }
     } catch {
       // sessionStorage no disponible o contenido corrupto
